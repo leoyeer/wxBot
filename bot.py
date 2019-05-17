@@ -10,14 +10,21 @@ class TulingWXBot(WXBot):
     def __init__(self):
         WXBot.__init__(self)
 
-        self.tuling_key = "bae94bed68204859bc45fc67535dc2da"
+        self.tuling_key = ""
         self.robot_switch = True
 
         try:
-            cf = ConfigParser.ConfigParser()
-            cf.read('conf.ini')
-            self.tuling_key = cf.get('main', 'key')
-        except Exception:
+            # cf = ConfigParser.ConfigParser()
+            path = os.getcwd() + '/conf.ini'
+            f = open(path)
+            lines = f.read()
+            keys = json.loads(lines)
+            f.close()
+            # cf.read(path)
+            self.tuling_key = keys['key']
+        except Exception, e :
+            print str(Exception)
+            print e
             pass
         print 'tuling_key:', self.tuling_key
 
