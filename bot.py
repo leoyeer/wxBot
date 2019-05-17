@@ -111,7 +111,7 @@ class TulingWXBot(WXBot):
 
 def main():
     bot = TulingWXBot()
-    bot.DEBUG = True
+    bot.DEBUG = False
     # bot.tuling_auto_reply(u'123', u'上海天气')
     bot.conf['qr'] = 'png'
     bot.run()
