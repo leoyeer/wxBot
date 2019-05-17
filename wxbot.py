@@ -720,8 +720,8 @@ class WXBot:
                 "ClientMsgId": msg_id
             }
         }
-        if '@' in word:
-            # print word.encode('utf8')
+        # if '@' in word:
+        #     print word.encode('utf')
             # print u'为艾特消息！'
             # params['Msg']['Type'] = 2
         headers = {'content-type': 'application/json; charset=UTF-8'}
