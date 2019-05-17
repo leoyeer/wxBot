@@ -721,8 +721,8 @@ class WXBot:
             }
         }
         if '@' in word:
-            print word.encode('utf8')
-            print u'为艾特消息！'
+            # print word.encode('utf8')
+            # print u'为艾特消息！'
             # params['Msg']['Type'] = 2
         headers = {'content-type': 'application/json; charset=UTF-8'}
         data = json.dumps(params, ensure_ascii=False).encode('utf8')
