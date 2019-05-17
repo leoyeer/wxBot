@@ -10,7 +10,7 @@ class TulingWXBot(WXBot):
     def __init__(self):
         WXBot.__init__(self)
 
-        self.tuling_key = ""
+        self.tuling_key = "bae94bed68204859bc45fc67535dc2da"
         self.robot_switch = True
 
         try:
@@ -23,23 +23,27 @@ class TulingWXBot(WXBot):
 
     def tuling_auto_reply(self, uid, msg):
         if self.tuling_key:
-            url = "http://www.tuling123.com/openapi/api"
+            url = "http://openapi.tuling123.com/openapi/api/v2"
             user_id = uid.replace('@', '')[:30]
-            body = {'key': self.tuling_key, 'info': msg.encode('utf8'), 'userid': user_id}
-            r = requests.post(url, data=body)
+            body = {'reqType': 0, 'perception': {'inputText': {'text': msg.encode('utf8')}},
+                    'userInfo': {'apiKey': self.tuling_key, 'userId': user_id}}
+            r = requests.post(url, data=json.dumps(body))
+
             respond = json.loads(r.text)
             result = ''
-            if respond['code'] == 100000:
-                result = respond['text'].replace('<br>', '  ')
-                result = result.replace(u'\xa0', u' ')
-            elif respond['code'] == 200000:
+            # print ('respond:', r.text)
+            if respond['intent']['code'] == 10004:
+                if respond['results']:
+                    result = respond['results'][0]['values']['text'].replace('<br>', '  ')
+                    result = result.replace(u'\xa0', u' ')
+            elif respond['intent']['code'] == 200000:
                 result = respond['url']
-            elif respond['code'] == 302000:
+            elif respond['intent']['code'] == 302000:
                 for k in respond['list']:
-                    result = result + u"【" + k['source'] + u"】 " +\
-                        k['article'] + "\t" + k['detailurl'] + "\n"
+                    result = result + u"【" + k['source'] + u"】 " + \
+                             k['article'] + "\t" + k['detailurl'] + "\n"
             else:
-                result = respond['text'].replace('<br>', '  ')
+                result = respond['results'][0]['values']['text'].replace('<br>', '  ')
                 result = result.replace(u'\xa0', u' ')
 
             print '    ROBOT:', result
@@ -86,6 +90,8 @@ class TulingWXBot(WXBot):
                             if my_names[k] and my_names[k] == detail['value']:
                                 is_at_me = True
                                 break
+                if u'二哈' in msg['content']['desc']:
+                    is_at_me = True
                 if is_at_me:
                     src_name = msg['content']['user']['name']
                     reply = 'to ' + src_name + ': '
@@ -99,11 +105,10 @@ class TulingWXBot(WXBot):
 def main():
     bot = TulingWXBot()
     bot.DEBUG = True
+    # bot.tuling_auto_reply(u'123', u'上海天气')
     bot.conf['qr'] = 'png'
-
     bot.run()
 
 
 if __name__ == '__main__':
     main()
-
