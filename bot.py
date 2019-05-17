@@ -196,10 +196,11 @@ class TulingWXBot(WXBot):
             else:
                 redis_data = u'一种未知事物'
             message = {'data': redis_data, 'userid': msg['user']['id'], 'username': msg['user']['name'], 'type': msg['content']['type']}
-            success = self.redis.set_data(msg_id, message)
-            if success:
-                print (msg_id, message)
-                print u"群消息存入redis成功"
+
+            # success = self.redis.set_data(msg_id, message)
+            # if success:
+            #     print (msg_id, message)
+            #     print u"群消息存入redis成功"
 
             # 处理表情消息
             if msg['content']['type'] == 6:
