@@ -53,7 +53,7 @@ class TulingWXBot(WXBot):
                 result = respond['results'][0]['values']['text'].replace('<br>', '  ')
                 result = result.replace(u'\xa0', u' ')
 
-            print '    ROBOT:', result
+            print '    ROBOT:', result.encode('utf-8')
             return result
         else:
             return u"知道啦"
@@ -113,7 +113,7 @@ def main():
     bot = TulingWXBot()
     bot.DEBUG = False
     # bot.tuling_auto_reply(u'123', u'上海天气')
-    bot.conf['qr'] = 'png'
+    bot.conf['qr'] = 'tty'
     bot.run()
 
 
