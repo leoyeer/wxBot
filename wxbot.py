@@ -438,13 +438,13 @@ class WXBot:
             uid = content[:sp]
             content = content[sp:]
             content = content.replace('<br/>', '')
-            print content.encode('utf8')
+            # print content.encode('utf8')
             uid = uid[:-1]
             name = self.get_contact_prefer_name(self.get_contact_name(uid))
             if not name:
-                print uid.encode('utf8')
+                # print uid.encode('utf8')
                 name = self.get_group_member_prefer_name(self.get_group_member_name(uid, msg['FromUserName']))
-                print name.encode('utf8')
+                # print name.encode('utf8')
             if not name:
                 name = 'unknown'
             msg_content['user'] = {'id': uid, 'name': name}
