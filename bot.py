@@ -290,6 +290,8 @@ class TulingWXBot(WXBot):
                                 is_at_me = True
                                 break
 
+                if u'二哈' in msg['content']['desc'] or u'立爷' in msg['content']['desc']:
+                    is_at_me = True;
                 #处理机器人是否退出流程
 
 
