@@ -90,7 +90,8 @@ class TulingWXBot(WXBot):
                             if my_names[k] and my_names[k] == detail['value']:
                                 is_at_me = True
                                 break
-
+                if u'二哈' in msg['content']['desc']:
+                    is_at_me = True
                 if is_at_me:
                     src_name = msg['content']['user']['name']
                     reply = 'to ' + src_name + ': '
