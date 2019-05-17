@@ -7,7 +7,6 @@ import traceback
 import webbrowser
 import pyqrcode
 import requests
-import mimetypes
 import json
 import xml.dom.minidom
 import urllib
@@ -17,14 +16,13 @@ import random
 from traceback import format_exc
 from requests.exceptions import ConnectionError, ReadTimeout
 import HTMLParser
+import tools
+import mimetypes
 
 UNKONWN = 'unkonwn'
 SUCCESS = '200'
 SCANED = '201'
 TIMEOUT = '408'
-
-def map_username_batch(user_name):
-    return {"UserName": user_name, "EncryChatRoomId": ""}
 
 
 def show_image(file_path):
@@ -41,7 +39,7 @@ def show_image(file_path):
         command = "open -a /Applications/Preview.app %s&" % quote(file_path)
         os.system(command)
     else:
-        webbrowser.open(os.path.join(os.getcwd(),'temp',file_path))
+        webbrowser.open(file_path)
 
 
 class SafeSession(requests.Session):
@@ -57,14 +55,6 @@ class SafeSession(requests.Session):
                 print e.message, traceback.format_exc()
                 continue
 
-        #重试3次以后再加一次，抛出异常
-        try:
-            return super(SafeSession, self).request(method, url, params, data, headers, cookies, files, auth,
-                                                    timeout,
-                                                    allow_redirects, proxies, hooks, stream, verify, cert, json)
-        except Exception as e:
-            raise e
-
 
 class WXBot:
     """WXBot功能类"""
@@ -73,7 +63,6 @@ class WXBot:
         self.DEBUG = False
         self.uuid = ''
         self.base_uri = ''
-        self.base_host = ''
         self.redirect_uri = ''
         self.uin = ''
         self.sid = ''
@@ -84,19 +73,6 @@ class WXBot:
         self.sync_key_str = ''
         self.sync_key = []
         self.sync_host = ''
-
-        status = 'wait4login'    #表示机器人状态，供WEBAPI读取，WxbotManage使用
-        bot_conf = {} #机器人配置，在webapi初始化的时候传入，后续也可修改，WxbotManage使用
-
-        self.batch_count = 50    #一次拉取50个联系人的信息
-        self.full_user_name_list = []    #直接获取不到通讯录时，获取的username列表
-        self.wxid_list = []   #获取到的wxid的列表
-        self.cursor = 0   #拉取联系人信息的游标
-        self.is_big_contact = False  #通讯录人数过多，无法直接获取
-        #文件缓存目录
-        self.temp_pwd  =  os.path.join(os.getcwd(),'temp')
-        if os.path.exists(self.temp_pwd) == False:
-            os.makedirs(self.temp_pwd)
 
         self.session = SafeSession()
         self.session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux i686; U;) Gecko/20070322 Kazehakase/0.4.5'})
@@ -119,23 +95,6 @@ class WXBot:
         self.special_list = []  # 特殊账号列表
         self.encry_chat_room_id_list = []  # 存储群聊的EncryChatRoomId，获取群内成员头像时需要用到
 
-        self.file_index = 0
-
-    #在未传入bot_conf的情况下尝试载入本地配置文件，WxbotManage使用
-    def load_conf(self,bot_conf):
-        try:
-            if bot_conf == {}:
-                with open(os.path.join(self.temp_pwd,'bot_conf.json')) as f:
-                    self.bot_conf= json.loads(f.read())
-        except:
-            self.bot_conf = {}
-
-    #保存配置文件，WxbotManage使用
-    def save_conf(self):
-        with open(os.path.join(self.temp_pwd,'bot_conf.json'), 'w') as f:
-            f.write(json.dumps(self.bot_conf))
-
-
     @staticmethod
     def to_unicode(string, encoding='utf-8'):
         """
@@ -153,35 +112,17 @@ class WXBot:
 
     def get_contact(self):
         """获取当前账户的所有相关账号(包括联系人、公众号、群聊、特殊账号)"""
-        dic_list = []
-        url = self.base_uri + '/webwxgetcontact?seq=0&pass_ticket=%s&skey=%s&r=%s' \
+        url = self.base_uri + '/webwxgetcontact?pass_ticket=%s&skey=%s&r=%s' \
                               % (self.pass_ticket, self.skey, int(time.time()))
-
-        #如果通讯录联系人过多，这里会直接获取失败
-        try:
-            r = self.session.post(url, data='{}', timeout=180)
-        except Exception as e:
-            return False
+        r = self.session.post(url, data='{}')
         r.encoding = 'utf-8'
-        dic = json.loads(r.text)
-        dic_list.append(dic)
-
-        while int(dic["Seq"]) != 0:
-            print "[INFO] Geting contacts. Get %s contacts for now" % dic["MemberCount"]
-            url = self.base_uri + '/webwxgetcontact?seq=%s&pass_ticket=%s&skey=%s&r=%s' \
-                      % (dic["Seq"], self.pass_ticket, self.skey, int(time.time()))
-            r = self.session.post(url, data='{}', timeout=180)
-            r.encoding = 'utf-8'
-            dic = json.loads(r.text)
-            dic_list.append(dic)
-
         if self.DEBUG:
-            with open(os.path.join(self.temp_pwd,'contacts.json'), 'w') as f:
-                f.write(json.dumps(dic_list))
-
-        self.member_list = []
-        for dic in dic_list:
-            self.member_list.extend(dic['MemberList'])
+            with open('data/contacts.json', 'w') as f:
+                f.write(r.text.encode('utf-8'))
+        dic = json.loads(r.text)
+        #print dic
+        self.member_list = dic['MemberList']
+        print self.member_list
 
         special_users = ['newsapp', 'fmessage', 'filehelper', 'weibo', 'qqmail',
                          'fmessage', 'tmessage', 'qmessage', 'qqsync', 'floatbottle',
@@ -217,120 +158,27 @@ class WXBot:
 
         for group in self.group_members:
             for member in self.group_members[group]:
+                print member['NickName']+', '
                 if member['UserName'] not in self.account_info:
                     self.account_info['group_member'][member['UserName']] = \
                         {'type': 'group_member', 'info': member, 'group': group}
 
         if self.DEBUG:
-            with open(os.path.join(self.temp_pwd,'contact_list.json'), 'w') as f:
+            with open('data/contact_list.json', 'w') as f:
                 f.write(json.dumps(self.contact_list))
-            with open(os.path.join(self.temp_pwd,'special_list.json'), 'w') as f:
+            with open('data/special_list.json', 'w') as f:
                 f.write(json.dumps(self.special_list))
-            with open(os.path.join(self.temp_pwd,'group_list.json'), 'w') as f:
+            with open('data/group_list.json', 'w') as f:
                 f.write(json.dumps(self.group_list))
-            with open(os.path.join(self.temp_pwd,'public_list.json'), 'w') as f:
+            with open('data/public_list.json', 'w') as f:
                 f.write(json.dumps(self.public_list))
-            with open(os.path.join(self.temp_pwd,'member_list.json'), 'w') as f:
+            with open('data/member_list.json', 'w') as f:
                 f.write(json.dumps(self.member_list))
-            with open(os.path.join(self.temp_pwd,'group_users.json'), 'w') as f:
+            with open('data/group_users.json', 'w') as f:
                 f.write(json.dumps(self.group_members))
-            with open(os.path.join(self.temp_pwd,'account_info.json'), 'w') as f:
+            with open('data/account_info.json', 'w') as f:
                 f.write(json.dumps(self.account_info))
         return True
-
-
-    def get_big_contact(self):
-        total_len = len(self.full_user_name_list)
-        user_info_list = []
-
-        #一次拉取50个联系人的信息，包括所有的群聊，公众号，好友
-        while self.cursor < total_len:
-            cur_batch = self.full_user_name_list[self.cursor:(self.cursor+self.batch_count)]
-            self.cursor += self.batch_count
-            cur_batch = map(map_username_batch, cur_batch)
-            user_info_list += self.batch_get_contact(cur_batch)
-            print "[INFO] Get batch contacts"
-
-        self.member_list = user_info_list
-        special_users = ['newsapp', 'filehelper', 'weibo', 'qqmail',
-                 'fmessage', 'tmessage', 'qmessage', 'qqsync', 'floatbottle',
-                 'lbsapp', 'shakeapp', 'medianote', 'qqfriend', 'readerapp',
-                 'blogapp', 'facebookapp', 'masssendapp', 'meishiapp',
-                 'feedsapp', 'voip', 'blogappweixin', 'weixin', 'brandsessionholder',
-                 'weixinreminder', 'wxid_novlwrv3lqwv11',
-                 'officialaccounts',
-                 'gh_22b87fa7cb3c', 'wxitil', 'userexperience_alarm', 'notification_messages', 'notifymessage']
-
-        self.contact_list = []
-        self.public_list = []
-        self.special_list = []
-        self.group_list = []
-        for i, contact in enumerate(self.member_list):
-            if contact['VerifyFlag'] & 8 != 0:  # 公众号
-                self.public_list.append(contact)
-                self.account_info['normal_member'][contact['UserName']] = {'type': 'public', 'info': contact}
-            elif contact['UserName'] in special_users or self.wxid_list[i] in special_users:  # 特殊账户
-                self.special_list.append(contact)
-                self.account_info['normal_member'][contact['UserName']] = {'type': 'special', 'info': contact}
-            elif contact['UserName'].find('@@') != -1:  # 群聊
-                self.group_list.append(contact)
-                self.account_info['normal_member'][contact['UserName']] = {'type': 'group', 'info': contact}
-            elif contact['UserName'] == self.my_account['UserName']:  # 自己
-                self.account_info['normal_member'][contact['UserName']] = {'type': 'self', 'info': contact}
-            else:
-                self.contact_list.append(contact)
-                self.account_info['normal_member'][contact['UserName']] = {'type': 'contact', 'info': contact}
-        group_members = {}
-        encry_chat_room_id = {}
-        for group in self.group_list:
-            gid = group['UserName']
-            members = group['MemberList']
-            group_members[gid] = members
-            encry_chat_room_id[gid] = group['EncryChatRoomId']
-        self.group_members = group_members
-        self.encry_chat_room_id_list = encry_chat_room_id
-
-        for group in self.group_members:
-            for member in self.group_members[group]:
-                if member['UserName'] not in self.account_info:
-                    self.account_info['group_member'][member['UserName']] = \
-                        {'type': 'group_member', 'info': member, 'group': group}
-
-        if self.DEBUG:
-            with open(os.path.join(self.temp_pwd,'contact_list.json'), 'w') as f:
-                f.write(json.dumps(self.contact_list))
-            with open(os.path.join(self.temp_pwd,'special_list.json'), 'w') as f:
-                f.write(json.dumps(self.special_list))
-            with open(os.path.join(self.temp_pwd,'group_list.json'), 'w') as f:
-                f.write(json.dumps(self.group_list))
-            with open(os.path.join(self.temp_pwd,'public_list.json'), 'w') as f:
-                f.write(json.dumps(self.public_list))
-            with open(os.path.join(self.temp_pwd,'member_list.json'), 'w') as f:
-                f.write(json.dumps(self.member_list))
-            with open(os.path.join(self.temp_pwd,'group_users.json'), 'w') as f:
-                f.write(json.dumps(self.group_members))
-            with open(os.path.join(self.temp_pwd,'account_info.json'), 'w') as f:
-                f.write(json.dumps(self.account_info))
-        print '[INFO] Get %d contacts' % len(self.contact_list)
-        print '[INFO] Start to process messages .'
-        return True
-
-
-
-    def batch_get_contact(self, cur_batch):
-        """批量获取成员信息"""
-        url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (int(time.time()), self.pass_ticket)
-        params = {
-            'BaseRequest': self.base_request,
-            "Count": len(cur_batch),
-            "List": cur_batch
-        }
-        r = self.session.post(url, data=json.dumps(params))
-        r.encoding = 'utf-8'
-        dic = json.loads(r.text)
-        #print dic['ContactList']
-        return dic['ContactList']
-
 
     def batch_get_group_members(self):
         """批量获取所有群聊成员信息"""
@@ -348,10 +196,33 @@ class WXBot:
         for group in dic['ContactList']:
             gid = group['UserName']
             members = group['MemberList']
+            print gid
             group_members[gid] = members
             encry_chat_room_id[gid] = group['EncryChatRoomId']
         self.group_members = group_members
         self.encry_chat_room_id_list = encry_chat_room_id
+
+    def get_all_group_member_name(self, gid):
+        """
+        获取群聊中所有成员的名称
+        :param gid:
+        :return:
+        """
+        if gid not in self.group_members:
+            return None
+        group = self.group_members[gid]
+        group_member_name = []
+        for member in group:
+            names = {}
+            if 'RemarkName' in member and member['RemarkName']:
+                names['remark_name'] = member['RemarkName']
+            if 'NickName' in member and member['NickName']:
+                names['nickname'] = member['NickName']
+            if 'DisplayName' in member and member['DisplayName']:
+                names['display_name'] = member['DisplayName']
+            final_name = self.get_group_member_prefer_name(names)
+            group_member_name.append(final_name)
+        return group_member_name
 
     def get_group_member_name(self, gid, uid):
         """
@@ -363,6 +234,7 @@ class WXBot:
         if gid not in self.group_members:
             return None
         group = self.group_members[gid]
+        # print group
         for member in group:
             if member['UserName'] == uid:
                 names = {}
@@ -378,9 +250,27 @@ class WXBot:
     def get_contact_info(self, uid):
         return self.account_info['normal_member'].get(uid)
 
-
     def get_group_member_info(self, uid):
+        #print self.account_info['group_member']
         return self.account_info['group_member'].get(uid)
+
+    def get_group_member_name2(self, uid):
+        info = self.get_group_member_info(uid)
+
+        if info is None:
+            return None
+        info = info['info']
+        name = {}
+        if 'RemarkName' in info and info['RemarkName']:
+            name['remark_name'] = info['RemarkName']
+        if 'NickName' in info and info['NickName']:
+            name['nickname'] = info['NickName']
+        if 'DisplayName' in info and info['DisplayName']:
+            name['display_name'] = info['DisplayName']
+        if len(name) == 0:
+            return None
+        else:
+            return name
 
     def get_contact_name(self, uid):
         info = self.get_contact_info(uid)
@@ -404,11 +294,11 @@ class WXBot:
         if name is None:
             return None
         if 'remark_name' in name:
-            return name['remark_name']
+            return tools.emoji_dealer(name['remark_name'])
         if 'nickname' in name:
-            return name['nickname']
+            return tools.emoji_dealer(name['nickname'])
         if 'display_name' in name:
-            return name['display_name']
+            return tools.emoji_dealer(name['display_name'])
         return None
 
     @staticmethod
@@ -416,11 +306,11 @@ class WXBot:
         if name is None:
             return None
         if 'remark_name' in name:
-            return name['remark_name']
+            return tools.emoji_dealer(name['remark_name'])
         if 'display_name' in name:
-            return name['display_name']
+            return tools.emoji_dealer(name['display_name'])
         if 'nickname' in name:
-            return name['nickname']
+            return tools.emoji_dealer(name['nickname'])
         return None
 
     def get_user_type(self, wx_user_id):
@@ -534,6 +424,11 @@ class WXBot:
         msg_id = msg['MsgId']
 
         msg_content = {}
+        msg_content['redraw'] = 0
+        msg_content['image_url'] = ''
+        msg_content['voice_url'] = ''
+        msg_content['is_hongbao'] = 0
+        msg_content['is_entergroup'] = 0
         if msg_type_id == 0:
             return {'type': 11, 'data': ''}
         elif msg_type_id == 2:  # File Helper
@@ -543,10 +438,13 @@ class WXBot:
             uid = content[:sp]
             content = content[sp:]
             content = content.replace('<br/>', '')
+            print content
             uid = uid[:-1]
             name = self.get_contact_prefer_name(self.get_contact_name(uid))
             if not name:
-                name = self.get_group_member_prefer_name(self.get_group_member_name(msg['FromUserName'], uid))
+                print uid
+                name = self.get_group_member_prefer_name(self.get_group_member_name(uid, msg['FromUserName']))
+                print name
             if not name:
                 name = 'unknown'
             msg_content['user'] = {'id': uid, 'name': name}
@@ -587,21 +485,18 @@ class WXBot:
             msg_content['type'] = 3
             msg_content['data'] = self.get_msg_img_url(msg_id)
             msg_content['img'] = self.session.get(msg_content['data']).content.encode('hex')
+            image = self.get_msg_img(msg_id)
+            msg_content['image_url'] = image
             if self.DEBUG:
-                image = self.get_msg_img(msg_id)
                 print '    %s[Image] %s' % (msg_prefix, image)
         elif mtype == 34:
             msg_content['type'] = 4
             msg_content['data'] = self.get_voice_url(msg_id)
             msg_content['voice'] = self.session.get(msg_content['data']).content.encode('hex')
+            voice = self.get_voice(msg_id)
+            msg_content['voice_url'] = voice
             if self.DEBUG:
-                voice = self.get_voice(msg_id)
                 print '    %s[Voice] %s' % (msg_prefix, voice)
-        elif mtype == 37:
-            msg_content['type'] = 37
-            msg_content['data'] = msg['RecommendInfo']
-            if self.DEBUG:
-                print '    %s[useradd] %s' % (msg_prefix,msg['RecommendInfo']['NickName'])
         elif mtype == 42:
             msg_content['type'] = 5
             info = msg['RecommendInfo']
@@ -621,6 +516,13 @@ class WXBot:
         elif mtype == 47:
             msg_content['type'] = 6
             msg_content['data'] = self.search_content('cdnurl', content)
+            print 'emoji_url' + msg_content['data']
+            if not 'unknown' in msg_content['data']:
+               r = self.session.get(msg_content['data'])
+               data = r.content
+               fn = 'data/emoji/emoji_' + msg_content['data'].replace('/', '_') + '.gif'
+               with open(fn, 'wb') as f:
+                   f.write(data)
             if self.DEBUG:
                 print '    %s[Animation] %s' % (msg_prefix, msg_content['data'])
         elif mtype == 49:
@@ -647,7 +549,7 @@ class WXBot:
                 print '    | desc: %s' % self.search_content('des', content, 'xml')
                 print '    | link: %s' % msg['Url']
                 print '    | from: %s' % self.search_content('appname', content, 'xml')
-                print '    | content: %s' % (msg.get('content')[:20] if msg.get('content') else "unknown")
+                print '    | content: %s' % msg.get('content')[:20]
                 print '    --------------------------'
 
         elif mtype == 62:
@@ -663,18 +565,22 @@ class WXBot:
         elif mtype == 10002:
             msg_content['type'] = 10
             msg_content['data'] = content
+            msg_content['redraw'] = 1
             if self.DEBUG:
                 print '    %s[Redraw]' % msg_prefix
         elif mtype == 10000:  # unknown, maybe red packet, or group invite
             msg_content['type'] = 12
+            if u'红包' in msg['Content']:
+                print '有红包！'
+                msg_content['is_hongbao'] = 1
+            elif u'邀请' in msg['Content']:
+                print '被拉入某群!'
+                msg_content['is_entergroup'] = 1
+                self.get_contact()
+
             msg_content['data'] = msg['Content']
             if self.DEBUG:
                 print '    [Unknown]'
-        elif mtype == 43:
-            msg_content['type'] = 13
-            msg_content['data'] = self.get_video_url(msg_id)
-            if self.DEBUG:
-                print '    %s[video] %s' % (msg_prefix, msg_content['data'])
         else:
             msg_content['type'] = 99
             msg_content['data'] = content
@@ -697,32 +603,11 @@ class WXBot:
         :param r: 原始微信消息
         """
         for msg in r['AddMsgList']:
+            #print 'origin msg:'+str(msg)
             user = {'id': msg['FromUserName'], 'name': 'unknown'}
-            if msg['MsgType'] == 51 and msg['StatusNotifyCode'] == 4:  # init message
+            if msg['MsgType'] == 51:  # init message
                 msg_type_id = 0
                 user['name'] = 'system'
-                #会获取所有联系人的username 和 wxid，但是会收到3次这个消息，只取第一次
-                if self.is_big_contact and len(self.full_user_name_list) == 0:
-                    self.full_user_name_list = msg['StatusNotifyUserName'].split(",")
-                    self.wxid_list = re.search(r"username&gt;(.*?)&lt;/username", msg["Content"]).group(1).split(",")
-                    with open(os.path.join(self.temp_pwd,'UserName.txt'), 'w') as f:
-                        f.write(msg['StatusNotifyUserName'])
-                    with open(os.path.join(self.temp_pwd,'wxid.txt'), 'w') as f:
-                        f.write(json.dumps(self.wxid_list))
-                    print "[INFO] Contact list is too big. Now start to fetch member list ."
-                    #self.get_big_contact()
-
-            elif msg['MsgType'] == 37:  # friend request
-                msg_type_id = 37
-                pass
-                # content = msg['Content']
-                # username = content[content.index('fromusername='): content.index('encryptusername')]
-                # username = username[username.index('"') + 1: username.rindex('"')]
-                # print u'[Friend Request]'
-                # print u'       Nickname：' + msg['RecommendInfo']['NickName']
-                # print u'       附加消息：'+msg['RecommendInfo']['Content']
-                # # print u'Ticket：'+msg['RecommendInfo']['Ticket'] # Ticket添加好友时要用
-                # print u'       微信号：'+username #未设置微信号的 腾讯会自动生成一段微信ID 但是无法通过搜索 搜索到此人
             elif msg['FromUserName'] == self.my_account['UserName']:  # Self
                 msg_type_id = 1
                 user['name'] = 'self'
@@ -731,7 +616,9 @@ class WXBot:
                 user['name'] = 'file_helper'
             elif msg['FromUserName'][:2] == '@@':  # Group
                 msg_type_id = 3
-                user['name'] = self.get_contact_prefer_name(self.get_contact_name(user['id']))
+                content = self.extract_msg_content(msg_type_id, msg)
+                print 'group_member id:' + content['user']['id']
+                user['name'] = self.get_contact_prefer_name(self.get_group_member_name2(content['user']['id']))
             elif self.is_contact(msg['FromUserName']):  # Contact
                 msg_type_id = 4
                 user['name'] = self.get_contact_prefer_name(self.get_contact_name(user['id']))
@@ -744,18 +631,23 @@ class WXBot:
             else:
                 msg_type_id = 99
                 user['name'] = 'unknown'
+                # 可能是添加好友，更新通讯录
+                self.get_contact()
             if not user['name']:
                 user['name'] = 'unknown'
             user['name'] = HTMLParser.HTMLParser().unescape(user['name'])
 
             if self.DEBUG and msg_type_id != 0:
-                print u'[MSG] %s:' % user['name']
+                print '[MSG] %s:' % user['name']
             content = self.extract_msg_content(msg_type_id, msg)
             message = {'msg_type_id': msg_type_id,
                        'msg_id': msg['MsgId'],
                        'content': content,
                        'to_user_id': msg['ToUserName'],
                        'user': user}
+            if message['user']['id'] == 'unknown':
+                self.get_contact()
+            print message
             self.handle_msg_all(message)
 
     def schedule(self):
@@ -767,16 +659,15 @@ class WXBot:
 
     def proc_msg(self):
         self.test_sync_check()
-        self.status = 'loginsuccess'  #WxbotManage使用
+        print 'proc_msg!!!'
         while True:
-            if self.status == 'wait4loginout':  #WxbotManage使用
-                return 
             check_time = time.time()
             try:
                 [retcode, selector] = self.sync_check()
-                # print '[DEBUG] sync_check:', retcode, selector
+                #print '[DEBUG] sync_check:', retcode, selector
                 if retcode == '1100':  # 从微信客户端上登出
                     break
+                    #pass
                 elif retcode == '1101':  # 从其它设备上登了网页微信
                     break
                 elif retcode == '0':
@@ -788,10 +679,6 @@ class WXBot:
                         r = self.sync()
                         if r is not None:
                             self.handle_msg(r)
-                    elif selector == '4':  # 通讯录更新
-                        r = self.sync()
-                        if r is not None:
-                            self.get_contact()
                     elif selector == '6':  # 可能是红包
                         r = self.sync()
                         if r is not None:
@@ -809,7 +696,6 @@ class WXBot:
                             self.handle_msg(r)
                 else:
                     print '[DEBUG] sync_check:', retcode, selector
-                    time.sleep(10)
                 self.schedule()
             except:
                 print '[ERROR] Except in proc_msg'
@@ -818,189 +704,10 @@ class WXBot:
             if check_time < 0.8:
                 time.sleep(1 - check_time)
 
-    def apply_useradd_requests(self,RecommendInfo):
-        url = self.base_uri + '/webwxverifyuser?r='+str(int(time.time()))+'&lang=zh_CN'
-        params = {
-            "BaseRequest": self.base_request,
-            "Opcode": 3,
-            "VerifyUserListSize": 1,
-            "VerifyUserList": [
-                {
-                    "Value": RecommendInfo['UserName'],
-                    "VerifyUserTicket": RecommendInfo['Ticket']             }
-            ],
-            "VerifyContent": "",
-            "SceneListCount": 1,
-            "SceneList": [
-                33
-            ],
-            "skey": self.skey
-        }
-        headers = {'content-type': 'application/json; charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode('utf8')
-        try:
-            r = self.session.post(url, data=data, headers=headers)
-        except (ConnectionError, ReadTimeout):
-            return False
-        dic = r.json()
-        return dic['BaseResponse']['Ret'] == 0
-
-    def add_groupuser_to_friend_by_uid(self,uid,VerifyContent):
-        """
-        主动向群内人员打招呼，提交添加好友请求
-        uid-群内人员得uid   VerifyContent-好友招呼内容
-        慎用此接口！封号后果自负！慎用此接口！封号后果自负！慎用此接口！封号后果自负！
-        """
-        if self.is_contact(uid):
-            return True
-        url = self.base_uri + '/webwxverifyuser?r='+str(int(time.time()))+'&lang=zh_CN'
-        params ={
-            "BaseRequest": self.base_request,
-            "Opcode": 2,
-            "VerifyUserListSize": 1,
-            "VerifyUserList": [
-                {
-                    "Value": uid,
-                    "VerifyUserTicket": ""
-                }
-            ],
-            "VerifyContent": VerifyContent,
-            "SceneListCount": 1,
-            "SceneList": [
-                33
-            ],
-            "skey": self.skey
-        }
-        headers = {'content-type': 'application/json; charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode('utf8')
-        try:
-            r = self.session.post(url, data=data, headers=headers)
-        except (ConnectionError, ReadTimeout):
-            return False
-        dic = r.json()
-        return dic['BaseResponse']['Ret'] == 0
-
-    def add_friend_to_group(self,uid,group_name):
-        """
-        将好友加入到群聊中
-        """
-        gid = ''
-        #通过群名获取群id,群没保存到通讯录中的话无法添加哦
-        for group in self.group_list:
-            if group['NickName'] == group_name:
-                gid = group['UserName']
-        if gid == '':
-            return False
-        #获取群成员数量并判断邀请方式
-        group_num=len(self.group_members[gid])
-        print '[DEBUG] group_name:%s group_num:%s' % (group_name,group_num)
-        #通过群id判断uid是否在群中
-        for user in self.group_members[gid]:
-            if user['UserName'] == uid:
-                #已经在群里面了,不用加了
-                return True
-        if group_num<=100:
-            url = self.base_uri + '/webwxupdatechatroom?fun=addmember&pass_ticket=%s' % self.pass_ticket
-            params ={
-                "AddMemberList": uid,
-                "ChatRoomName": gid,
-                "BaseRequest": self.base_request
-            }
-        else:
-            url = self.base_uri + '/webwxupdatechatroom?fun=invitemember'
-            params ={
-                "InviteMemberList": uid,
-                "ChatRoomName": gid,
-                "BaseRequest": self.base_request
-            }
-        headers = {'content-type': 'application/json; charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode('utf8')
-        try:
-            r = self.session.post(url, data=data, headers=headers)
-        except (ConnectionError, ReadTimeout):
-            return False
-        dic = r.json()
-        return dic['BaseResponse']['Ret'] == 0
-
-    def invite_friend_to_group(self,uid,group_name):
-        """
-        将好友加入到群中。对人数多的群，需要调用此方法。
-        拉人时，可以先尝试使用add_friend_to_group方法，当调用失败(Ret=1)时，再尝试调用此方法。
-        """
-        gid = ''
-        # 通过群名获取群id,群没保存到通讯录中的话无法添加哦
-        for group in self.group_list:
-            if group['NickName'] == group_name:
-                gid = group['UserName']
-        if gid == '':
-            return False
-        # 通过群id判断uid是否在群中
-        for user in self.group_members[gid]:
-            if user['UserName'] == uid:
-                # 已经在群里面了,不用加了
-                return True
-        url = self.base_uri + '/webwxupdatechatroom?fun=invitemember&pass_ticket=%s' % self.pass_ticket
-        params = {
-            "InviteMemberList": uid,
-            "ChatRoomName": gid,
-            "BaseRequest": self.base_request
-        }
-        headers = {'content-type': 'application/json; charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode('utf8')
-        try:
-            r = self.session.post(url, data=data, headers=headers)
-        except (ConnectionError, ReadTimeout):
-            return False
-        dic = r.json()
-        return dic['BaseResponse']['Ret'] == 0
-
-    def delete_user_from_group(self,uname,gid):
-        """
-        将群用户从群中剔除，只有群管理员有权限
-        """
-        uid = ""
-        for user in self.group_members[gid]:
-            if user['NickName'] == uname:
-                uid = user['UserName']
-        if uid == "":
-            return False
-        url = self.base_uri + '/webwxupdatechatroom?fun=delmember&pass_ticket=%s' % self.pass_ticket
-        params ={
-            "DelMemberList": uid,
-            "ChatRoomName": gid,
-            "BaseRequest": self.base_request
-        }
-        headers = {'content-type': 'application/json; charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode('utf8')
-        try:
-            r = self.session.post(url, data=data, headers=headers)
-        except (ConnectionError, ReadTimeout):
-            return False
-        dic = r.json()
-        return dic['BaseResponse']['Ret'] == 0
-
-    def set_group_name(self,gid,gname):
-        """
-        设置群聊名称
-        """
-        url = self.base_uri + '/webwxupdatechatroom?fun=modtopic&pass_ticket=%s' % self.pass_ticket
-        params ={
-            "NewTopic": gname,
-            "ChatRoomName": gid,
-            "BaseRequest": self.base_request
-        }
-        headers = {'content-type': 'application/json; charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode('utf8')
-        try:
-            r = self.session.post(url, data=data, headers=headers)
-        except (ConnectionError, ReadTimeout):
-            return False
-        dic = r.json()
-        return dic['BaseResponse']['Ret'] == 0
-
     def send_msg_by_uid(self, word, dst='filehelper'):
         url = self.base_uri + '/webwxsendmsg?pass_ticket=%s' % self.pass_ticket
         msg_id = str(int(time.time() * 1000)) + str(random.random())[:5].replace('.', '')
+
         word = self.to_unicode(word)
         params = {
             'BaseRequest': self.base_request,
@@ -1013,6 +720,10 @@ class WXBot:
                 "ClientMsgId": msg_id
             }
         }
+        if '@' in word:
+            print word
+            print '为艾特消息！'
+            # params['Msg']['Type'] = 2
         headers = {'content-type': 'application/json; charset=UTF-8'}
         data = json.dumps(params, ensure_ascii=False).encode('utf8')
         try:
@@ -1022,99 +733,113 @@ class WXBot:
         dic = r.json()
         return dic['BaseResponse']['Ret'] == 0
 
-    def upload_media(self, fpath, is_img=False):
-        if not os.path.exists(fpath):
-            print '[ERROR] File not exists.'
-            return None
-        url_1 = 'https://file.'+self.base_host+'/cgi-bin/mmwebwx-bin/webwxuploadmedia?f=json'
-        url_2 = 'https://file2.'+self.base_host+'/cgi-bin/mmwebwx-bin/webwxuploadmedia?f=json'
-        flen = str(os.path.getsize(fpath))
-        ftype = mimetypes.guess_type(fpath)[0] or 'application/octet-stream'
-        files = {
-                'id': (None, 'WU_FILE_%s' % str(self.file_index)),
-                'name': (None, os.path.basename(fpath)),
-                'type': (None, ftype),
-                'lastModifiedDate': (None, time.strftime('%m/%d/%Y, %H:%M:%S GMT+0800 (CST)')),
-                'size': (None, flen),
-                'mediatype': (None, 'pic' if is_img else 'doc'),
-                'uploadmediarequest': (None, json.dumps({
-                    'BaseRequest': self.base_request,
-                    'ClientMediaId': int(time.time()),
-                    'TotalLen': flen,
-                    'StartPos': 0,
-                    'DataLen': flen,
-                    'MediaType': 4,
-                    })),
-                'webwx_data_ticket': (None, self.session.cookies['webwx_data_ticket']),
-                'pass_ticket': (None, self.pass_ticket),
-                'filename': (os.path.basename(fpath), open(fpath, 'rb'),ftype.split('/')[1]),
-                }
-        self.file_index += 1
-        try:
-            r = self.session.post(url_1, files=files)
-            if json.loads(r.text)['BaseResponse']['Ret'] != 0:
-                # 当file返回值不为0时则为上传失败，尝试第二服务器上传
-                r = self.session.post(url_2, files=files)
-            if json.loads(r.text)['BaseResponse']['Ret'] != 0:
-                print '[ERROR] Upload media failure.'
-                return None
-            mid = json.loads(r.text)['MediaId']
-            return mid
-        except Exception,e:
-            return None
-
-    def send_file_msg_by_uid(self, fpath, uid):
-        mid = self.upload_media(fpath)
-        if mid is None or not mid:
-            return False
-        url = self.base_uri + '/webwxsendappmsg?fun=async&f=json&pass_ticket=' + self.pass_ticket
-        msg_id = str(int(time.time() * 1000)) + str(random.random())[:5].replace('.', '')
-        data = {
+    def send_file(self, fileDir, toUserName = None):
+        if toUserName is None: toUserName = self.storageClass.userName
+        mediaId = self.__upload_file(fileDir)
+        if mediaId is None: return False
+        url = '%s/webwxsendappmsg?fun=async&f=json'%self.base_uri
+        payloads = {
                 'BaseRequest': self.base_request,
                 'Msg': {
                     'Type': 6,
-                    'Content': ("<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title><des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl><appattach><totallen>%s</totallen><attachid>%s</attachid><fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>" % (os.path.basename(fpath).encode('utf-8'), str(os.path.getsize(fpath)), mid, fpath.split('.')[-1])).encode('utf8'),
+                    'Content': ("<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title>"%os.path.basename(fileDir) +
+                        "<des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl>" +
+                        "<appattach><totallen>%s</totallen><attachid>%s</attachid>"%(str(os.path.getsize(fileDir)), mediaId) +
+                        "<fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>"%os.path.splitext(fileDir)[1].replace('.','')
+                        ).encode('utf8'),
                     'FromUserName': self.my_account['UserName'],
-                    'ToUserName': uid,
-                    'LocalID': msg_id,
-                    'ClientMsgId': msg_id, }, }
-        try:
-            r = self.session.post(url, data=json.dumps(data))
-            res = json.loads(r.text)
-            if res['BaseResponse']['Ret'] == 0:
-                return True
-            else:
-                return False
-        except Exception,e:
-            return False
+                    'ToUserName': toUserName.encode('utf8'),
+                    'LocalID': str(time.time() * 1e7),
+                    'ClientMsgId': str(time.time() * 1e7), }, }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.80 Safari/537.36',
+            'Content-Type': 'application/json;charset=UTF-8', }
+        r = self.session.post(url, data = json.dumps(payloads, ensure_ascii = False), headers = headers)
+        return True
 
-    def send_img_msg_by_uid(self, fpath, uid):
-        mid = self.upload_media(fpath, is_img=True)
-        if mid is None:
-            return False
-        url = self.base_uri + '/webwxsendmsgimg?fun=async&f=json'
-        data = {
+
+    def __upload_file(self, fileDir, isPicture = False):
+        if not tools.check_file(fileDir): return
+        url = 'https://file%s.wx.qq.com/cgi-bin/mmwebwx-bin/webwxuploadmedia?f=json'%('2' if '2' in self.base_uri else '')
+        # save it on server
+        fileSize = str(os.path.getsize(fileDir))
+        cookiesList = {name:data for name,data in self.session.cookies.items()}
+        fileType = mimetypes.guess_type(fileDir)[0] or 'application/octet-stream'
+        files = {
+                'id': (None, 'WU_FILE_0'),
+                'name': (None, os.path.basename(fileDir)),
+                'type': (None, fileType),
+                'lastModifiedDate': (None, time.strftime('%a %b %d %Y %H:%M:%S GMT+0800 (CST)')),
+                'size': (None, fileSize),
+                'mediatype': (None, 'pic' if isPicture else 'doc'),
+                'uploadmediarequest': (None, json.dumps({
+                    'BaseRequest': self.base_request,
+                    'ClientMediaId': int(time.time()),
+                    'TotalLen': fileSize,
+                    'StartPos': 0,
+                    'DataLen': fileSize,
+                    'MediaType': 4,
+                    }, separators = (',', ':'))),
+                'webwx_data_ticket': (None, cookiesList['webwx_data_ticket']),
+                'pass_ticket': (None, 'undefined'),
+                'filename' : (os.path.basename(fileDir), open(fileDir, 'rb'), fileType),
+                }
+        headers = { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.80 Safari/537.36', }
+        r = self.session.post(url, files = files, headers = headers)
+        return json.loads(r.text)['MediaId']
+
+    def send_random_emoji(self, toUserName = None):
+        files = os.listdir('data/emoji/')
+        random_index = random.randint(0, len(files)-1)
+        if len(files) == 1:
+            return None
+        emoji_file = 'data/emoji/'+files[random_index]
+        self.send_emoji(emoji_file, toUserName)
+
+    def send_emoji(self, fileDir, toUserName = None):
+        mediaId = self.__upload_file(fileDir, isPicture = not fileDir[-4:] == '.gif')
+        if mediaId is None: return False
+        url = '%s/webwxsendemoticon?fun=sys'%self.base_uri
+        payloads = {
                 'BaseRequest': self.base_request,
                 'Msg': {
                     'Type': 3,
-                    'MediaId': mid,
+                    'MediaId': mediaId,
                     'FromUserName': self.my_account['UserName'],
-                    'ToUserName': uid,
+                    'ToUserName': toUserName.encode('utf8'),
                     'LocalID': str(time.time() * 1e7),
                     'ClientMsgId': str(time.time() * 1e7), }, }
-        if fpath[-4:] == '.gif':
-            url = self.base_uri + '/webwxsendemoticon?fun=sys'
-            data['Msg']['Type'] = 47
-            data['Msg']['EmojiFlag'] = 2
-        try:
-            r = self.session.post(url, data=json.dumps(data))
-            res = json.loads(r.text)
-            if res['BaseResponse']['Ret'] == 0:
-                return True
-            else:
-                return False
-        except Exception,e:
-            return False
+        payloads['Msg']['Type'] = 47
+        payloads['Msg']['EmojiFlag'] = 2
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.80 Safari/537.36',
+            'Content-Type': 'application/json;charset=UTF-8', }
+        r = self.session.post(url, data = json.dumps(payloads, ensure_ascii = False), headers = headers)
+        return True
+
+    def send_image(self, fileDir, toUserName = None):
+        if toUserName is None: toUserName = self.my_account['UserName']
+        mediaId = self.__upload_file(fileDir, isPicture = not fileDir[-4:] == '.gif')
+        if mediaId is None: return False
+        url = '%s/webwxsendmsgimg?fun=async&f=json'%self.base_uri
+        payloads = {
+                'BaseRequest': self.base_request,
+                'Msg': {
+                    'Type': 3,
+                    'MediaId': mediaId,
+                    'FromUserName': self.my_account['UserName'],
+                    'ToUserName': toUserName.encode('utf8'),
+                    'LocalID': str(time.time() * 1e7),
+                    'ClientMsgId': str(time.time() * 1e7), }, }
+        if fileDir[-4:] == '.gif':
+            url = '%s/webwxsendemoticon?fun=sys'%self.base_uri
+            payloads['Msg']['Type'] = 47
+            payloads['Msg']['EmojiFlag'] = 2
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.80 Safari/537.36',
+            'Content-Type': 'application/json;charset=UTF-8', }
+        r = self.session.post(url, data = json.dumps(payloads, ensure_ascii = False), headers = headers)
+        return True
 
     def get_user_id(self, name):
         if name == '':
@@ -1176,40 +901,31 @@ class WXBot:
         return 'unknown'
 
     def run(self):
-        try:
-            self.get_uuid()
-            self.gen_qr_code(os.path.join(self.temp_pwd,'wxqr.png'))
-            print '[INFO] Please use WeChat to scan the QR code .'
+        self.get_uuid()
+        self.gen_qr_code('qr.png')
+        print '[INFO] Please use WeChat to scan the QR code .'
 
-            result = self.wait4login()
-            if result != SUCCESS:
-                print '[ERROR] Web WeChat login failed. failed code=%s' % (result,)
-                self.status = 'loginout'
-                return
+        result = self.wait4login()
+        if result != SUCCESS:
+            print '[ERROR] Web WeChat login failed. failed code=%s' % (result,)
+            return
 
-            if self.login():
-                print '[INFO] Web WeChat login succeed .'
-            else:
-                print '[ERROR] Web WeChat login failed .'
-                self.status = 'loginout'
-                return
+        if self.login():
+            print '[INFO] Web WeChat login succeed .'
+        else:
+            print '[ERROR] Web WeChat login failed .'
+            return
 
-            if self.init():
-                print '[INFO] Web WeChat init succeed .'
-            else:
-                print '[INFO] Web WeChat init failed'
-                self.status = 'loginout'
-                return
-            self.status_notify()
-            if self.get_contact():
-                print '[INFO] Get %d contacts' % len(self.contact_list)
-                print '[INFO] Start to process messages .'
-            self.proc_msg()
-            self.status = 'loginout'
-        except Exception,e:
-            print '[ERROR] Web WeChat run failed --> %s'%(e)
-            self.status = 'loginout'
-
+        if self.init():
+            print '[INFO] Web WeChat init succeed .'
+        else:
+            print '[INFO] Web WeChat init failed'
+            return
+        self.status_notify()
+        self.get_contact()
+        print '[INFO] Get %d contacts' % len(self.contact_list)
+        print '[INFO] Start to process messages .'
+        self.proc_msg()
 
     def get_uuid(self):
         url = 'https://login.weixin.qq.com/jslogin'
@@ -1239,7 +955,7 @@ class WXBot:
             # img = Image.open(qr_file_path)
             # img.show()
         elif self.conf['qr'] == 'tty':
-            print(qr.terminal(quiet_zone=1))
+            print(qr.terminal(quiet_zone=4))
 
     def do_request(self, url):
         r = self.session.get(url)
@@ -1278,8 +994,6 @@ class WXBot:
                 redirect_uri = param.group(1) + '&fun=new'
                 self.redirect_uri = redirect_uri
                 self.base_uri = redirect_uri[:redirect_uri.rfind('/')]
-                temp_host = self.base_uri[8:]
-                self.base_host = temp_host[:temp_host.find("/")]
                 return code
             elif code == TIMEOUT:
                 print '[ERROR] WeChat login timeout. retry in %s secs later...' % (try_later_secs,)
@@ -1335,6 +1049,7 @@ class WXBot:
         r = self.session.post(url, data=json.dumps(params))
         r.encoding = 'utf-8'
         dic = json.loads(r.text)
+        print dic
         self.sync_key = dic['SyncKey']
         self.my_account = dic['User']
         self.sync_key_str = '|'.join([str(keyVal['Key']) + '_' + str(keyVal['Val'])
@@ -1354,15 +1069,13 @@ class WXBot:
         r = self.session.post(url, data=json.dumps(params))
         r.encoding = 'utf-8'
         dic = json.loads(r.text)
+        print dic
         return dic['BaseResponse']['Ret'] == 0
 
     def test_sync_check(self):
-        for host1 in ['webpush.', 'webpush2.']:
-            self.sync_host = host1+self.base_host
-            try:
-                retcode = self.sync_check()[0]
-            except:
-                retcode = -1
+        for host in ['webpush', 'webpush2']:
+            self.sync_host = host
+            retcode = self.sync_check()[0]
             if retcode == '0':
                 return True
         return False
@@ -1377,7 +1090,7 @@ class WXBot:
             'synckey': self.sync_key_str,
             '_': int(time.time()),
         }
-        url = 'https://' + self.sync_host + '/cgi-bin/mmwebwx-bin/synccheck?' + urllib.urlencode(params)
+        url = 'https://' + self.sync_host + '.wx.qq.com/cgi-bin/mmwebwx-bin/synccheck?' + urllib.urlencode(params)
         try:
             r = self.session.get(url, timeout=60)
             r.encoding = 'utf-8'
@@ -1402,7 +1115,7 @@ class WXBot:
             r.encoding = 'utf-8'
             dic = json.loads(r.text)
             if dic['BaseResponse']['Ret'] == 0:
-                self.sync_key = dic['SyncCheckKey']
+                self.sync_key = dic['SyncKey']
                 self.sync_key_str = '|'.join([str(keyVal['Key']) + '_' + str(keyVal['Val'])
                                               for keyVal in self.sync_key['List']])
             return dic
@@ -1423,7 +1136,7 @@ class WXBot:
         r = self.session.get(url)
         data = r.content
         fn = 'icon_' + uid + '.jpg'
-        with open(os.path.join(self.temp_pwd,fn), 'wb') as f:
+        with open(fn, 'wb') as f:
             f.write(data)
         return fn
 
@@ -1436,7 +1149,7 @@ class WXBot:
         r = self.session.get(url)
         data = r.content
         fn = 'head_' + uid + '.jpg'
-        with open(os.path.join(self.temp_pwd,fn), 'wb') as f:
+        with open(fn, 'wb') as f:
             f.write(data)
         return fn
 
@@ -1452,8 +1165,8 @@ class WXBot:
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s' % (msgid, self.skey)
         r = self.session.get(url)
         data = r.content
-        fn = 'img_' + msgid + '.jpg'
-        with open(os.path.join(self.temp_pwd,fn), 'wb') as f:
+        fn = 'data/image/img_' + msgid + '.jpg'
+        with open(fn, 'wb') as f:
             f.write(data)
         return fn
 
@@ -1469,43 +1182,7 @@ class WXBot:
         url = self.base_uri + '/webwxgetvoice?msgid=%s&skey=%s' % (msgid, self.skey)
         r = self.session.get(url)
         data = r.content
-        fn = 'voice_' + msgid + '.mp3'
-        with open(os.path.join(self.temp_pwd,fn), 'wb') as f:
+        fn = 'data/voice/voice_' + msgid + '.mp3'
+        with open(fn, 'wb') as f:
             f.write(data)
         return fn
-
-    def get_video_url(self, msgid):
-        return self.base_uri + '/webwxgetvideo?msgid=%s&skey=%s' % (msgid, self.skey)
-
-    def get_video(self, msgid):
-        """
-        获取视频消息，下载视频到本地
-        :param msgid: 视频消息id
-        :return: 保存的本地视频文件路径
-        """
-        url = self.base_uri + '/webwxgetvideo?msgid=%s&skey=%s' % (msgid, self.skey)
-        headers = {'Range': 'bytes=0-'}
-        r = self.session.get(url, headers=headers)
-        data = r.content
-        fn = 'video_' + msgid + '.mp4'
-        with open(os.path.join(self.temp_pwd,fn), 'wb') as f:
-            f.write(data)
-        return fn
-
-    def set_remarkname(self,uid,remarkname):#设置联系人的备注名
-        url = self.base_uri + '/webwxoplog?lang=zh_CN&pass_ticket=%s' \
-                              % (self.pass_ticket)
-        remarkname = self.to_unicode(remarkname)
-        params = {
-            'BaseRequest': self.base_request,
-            'CmdId': 2,
-            'RemarkName': remarkname,
-            'UserName': uid
-        }
-        try:
-            r = self.session.post(url, data=json.dumps(params), timeout=60)
-            r.encoding = 'utf-8'
-            dic = json.loads(r.text)
-            return dic['BaseResponse']['ErrMsg']
-        except:
-            return None

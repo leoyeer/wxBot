@@ -1,7 +1,19 @@
-# wxBot [![star this repo](http://github-svg-buttons.herokuapp.com/star.svg?user=liuwons&repo=wxBot&style=flat&background=1081C1)](http://github.com/liuwons/wxBot) [![fork this repo](http://github-svg-buttons.herokuapp.com/fork.svg?user=liuwons&repo=wxBot&style=flat&background=1081C1)](http://github.com/liuwons/wxBot/fork) ![python](https://img.shields.io/badge/python-2.7-ff69b4.svg)
+# wxBot
 
 **wxBot** 是用Python包装Web微信协议实现的微信机器人框架。
 
+##根据框架目前我所添加的功能有:
+- 1.加入推荐电影和小电影模块，优化聊天逻辑(回复 推荐电影 和 我要看片 即可)
+- 2.添加重发群成员撤回消息的功能(需要配置redis，当然你也可以换成别的数据库，内存数据库为佳)，包括文字，图片，语音消息，表情过一阵支持
+- 3.加入通过密钥可以通过长者发布群公告的功能
+- 4.支持随机发送表情(可以用于斗图),发红包自动提醒全成员，回复艾特全员自动帮你艾特全部群成员
+- *解决了wxBot框架群昵称显示unknown的bug和emoji表情无法正常显示的bug
+
+##下一步计划:
+- 添加水印图片传递的功能
+
+
+##框架介绍
 目前的消息支持情况:
 
 - [ ] 群消息
@@ -26,29 +38,14 @@
   - [ ] 红包
   - [ ] 转账
 
-- [x] 消息发送
-  - [x] 文本
-  - [x] 图片
-  - [x] 文件
 
-
-
-Web微信协议参考资料：
-
-[挖掘微信Web版通信的全过程](http://www.tanhao.me/talk/1466.html/)
-
-[微信协议简单调研笔记](http://www.blogjava.net/yongboy/archive/2015/11/05/410636.html)
-
-[qwx: WeChat Qt frontend 微信Qt前端](https://github.com/xiangzhai/qwx)
-
-**master-dev 分支为开发版本，用于测试新特性，欢迎使用后提出建议!**
 
 
 ## 1 环境与依赖
 
 此版本只能运行于Python 2环境 。
 
-**wxBot** 用到了Python **requests** , **pypng** , **Pillow** 以及 **pyqrcode** 库。
+**wxBot** 用到了Python **requests** , **pypng** , **Pillow* 以及 **pyqrcode** 库。
 
 使用之前需要所依赖的库:
 
@@ -65,7 +62,7 @@ pip install Pillow
 
 ### 2.1 代码
 
-以下的代码对所有来自好友的文本消息回复文本消息 *hi* 、图片消息 *1.png* 以及文件消息 *1.png* ， 并不断向好友 *tb* 发送文本 *schedule* 。
+以下的代码对所有来自好友的文本消息回复 *hi* ， 并不断向好友 *tb* 发送 *schedule* 。
 
 `handle_msg_all` 函数用于处理收到的每条消息，而 `schedule` 函数可以做一些任务性的工作(例如不断向好友推送信息或者一些定时任务)。
 
@@ -80,8 +77,6 @@ class MyWXBot(WXBot):
     def handle_msg_all(self, msg):
         if msg['msg_type_id'] == 4 and msg['content']['type'] == 0:
             self.send_msg_by_uid(u'hi', msg['user']['id'])
-            self.send_img_msg_by_uid("img/1.png", msg['user']['id'])
-            self.send_file_msg_by_uid("img/1.png", msg['user']['id'])
 
     def schedule(self):
         self.send_msg(u'tb', u'schedule')
@@ -164,7 +159,6 @@ python test.py
 | 10 | 撤回消息 | 不可用 |
 | 11 | 空内容 | 空字符串 |
 | 12 | 红包 | 不可用 |
-| 13 | 小视频 | 字符串，视频数据的url，HTTP POST请求此url可以得到mp4文件格式的数据 |
 | 99 | 未知类型 | 不可用 |
 
 ### 4.4 群文本消息
@@ -203,11 +197,7 @@ python test.py
 | `get_head_img(id)` | 获取用户头像并保存到本地文件 ***img_[id].jpg*** ，`id` 为用户id(Web微信数据) |
 | `get_msg_img(msgid)` | 获取图像消息并保存到本地文件 ***img_[msgid].jpg*** , `msgid` 为消息id(Web微信数据) |
 | `get_voice(msgid)` | 获取语音消息并保存到本地文件 ***voice_[msgid].mp3*** , `msgid` 为消息id(Web微信数据) |
-| `get_video(msgid)` | 获取视频消息并保存到本地文件 ***video_[msgid].mp4*** , `msgid` 为消息id(Web微信数据) |
 | `get_contact_name(uid)` | 获取微信id对应的名称，返回一个可能包含 `remark_name` (备注名), `nickname` (昵称), `display_name` (群名称)的字典|
-| `send_msg_by_uid(word, dst)` | 向好友发送消息，`word` 为消息字符串，`dst` 为好友用户id(Web微信数据) |
-| `send_img_msg_by_uid(fpath, dst)` | 向好友发送图片消息，`fpath` 为本地图片文件路径，`dst` 为好友用户id(Web微信数据) |
-| `send_file_msg_by_uid(fpath, dst)` | 向好友发送文件消息，`fpath` 为本地文件路径，`dst` 为好友用户id(Web微信数据) |
 | `send_msg_by_uid(word, dst)` | 向好友发送消息，`word` 为消息字符串，`dst` 为好友用户id(Web微信数据) |
 | `send_msg(name, word, isfile)` | 向好友发送消息，`name` 为好友的备注名或者好友微信号， `isfile`为 `False` 时 `word` 为消息，`isfile` 为 `True` 时 `word` 为文件路径(此时向好友发送文件里的每一行)，此方法在有重名好友时会有问题，因此更推荐使用 `send_msg_by_uid(word, dst)` |
 | `is_contact(uid)` | 判断id为 `uid` 的账号是否是本帐号的好友，返回 `True` (是)或 `False` (不是) |
@@ -258,22 +248,3 @@ python test.py
     ```python
     python bot.py
     ```
-
-## 6 类似项目
-
-[feit/Weixinbot](https://github.com/feit/Weixinbot) Nodejs 封装网页版微信的接口，可编程控制微信消息
-
-[littlecodersh/ItChat](https://github.com/littlecodersh/ItChat) 微信个人号接口、微信机器人及命令行微信，Command line talks through Wechat
-
-[Urinx/WeixinBot](https://github.com/Urinx/WeixinBot) 网页版微信API，包含终端版微信及微信机器人
-
-[zixia/wechaty](https://github.com/zixia/wechaty) Wechaty is wechat for bot in Javascript(ES6). It's a Personal Account Robot Framework/Library.
-
-## 7 基于Wxbot延伸的一些项目
-[WxbotManage](https://coding.net/u/vivre/p/WxbotManage/git) 基于Wxbot的微信多开管理和Webapi系统
-
-## 8 交流讨论
-
-问题可以直接开 **issue**
-
-**QQ** 交流群： **429134510** (1群)  **603614392** (2群)
