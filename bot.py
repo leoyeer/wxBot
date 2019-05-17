@@ -57,7 +57,7 @@ class TulingWXBot(WXBot):
                 result = respond['results'][0]['values']['text'].replace('<br>', '  ')
                 result = result.replace(u'\xa0', u' ')
 
-            print '    ROBOT:', result
+            print '    ROBOT:', result.encode('utf8')
             return result
         else:
             return u"知道啦"

@@ -158,7 +158,7 @@ class WXBot:
 
         for group in self.group_members:
             for member in self.group_members[group]:
-                print member['NickName']+', '
+                #print member['NickName']+', '
                 if member['UserName'] not in self.account_info:
                     self.account_info['group_member'][member['UserName']] = \
                         {'type': 'group_member', 'info': member, 'group': group}
@@ -637,8 +637,8 @@ class WXBot:
                 user['name'] = 'unknown'
             user['name'] = HTMLParser.HTMLParser().unescape(user['name'])
 
-            if self.DEBUG and msg_type_id != 0:
-                print '[MSG] %s:' % user['name']
+            #if self.DEBUG and msg_type_id != 0:
+                #print '[MSG] %s:' % user['name']
             content = self.extract_msg_content(msg_type_id, msg)
             message = {'msg_type_id': msg_type_id,
                        'msg_id': msg['MsgId'],
